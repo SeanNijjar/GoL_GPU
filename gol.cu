@@ -174,8 +174,13 @@ int main (int argc, char *argv[]) {
 	cudaMalloc(&d_input, gridSize * sizeof(GolCell));
 	cudaMalloc(&d_output, gridSize * sizeof(GolCell));
 	cudaMemcpy(d_input, input, gridSize * sizeof(GolCell), cudaMemcpyHostToDevice);
-	
-	RunGoL<<<blocks, threads>>>(d_input, d_output, gridWidth, gridHeight, iterations, true);
+	for(int i = 0; i < iterations; i = i + 1) {
+		// Make sure this is blocking for now
+		RunGoL<<<blocks, threads>>>(d_input, d_output, gridWidth, gridHeight, 1, true);
+		GolCell *temp = d_input;
+		d_input = d_output;
+		d_output = temp;
+	}
 	
 	// I think the number of iterations will determine whether we should copy from d_output or d_input
 	cudaMemcpy(output, (iterations & 0x1) ? d_output : d_input, gridSize * sizeof(GolCell), cudaMemcpyDeviceToHost);
