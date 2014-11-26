@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <stdio.h>
+#include <assert.h>
 // Game of Life rules
 
 // we define WORD_CEIL because normal ceil() would require using FP
@@ -26,16 +27,16 @@ inline __device__ void UpdateNeighbourhood(int &neighbourhood, int &neighbourVal
 } 
 
 inline __device__ int GetCell(int *grid, int x, int y, int gridWidth) {
-    int partial = x + y * gridWidth;
-    int word = grid[partial / 32];
-    int bit = partial % 32;
+    int index = (x / 32) + WORD_CEIL(gridWidth, 32) * y;
+    int bit = x % 32;
+    int word = grid[index];
 	return GET_BIT(word, bit);
 }
 
 inline __device__ void SetCell(int *grid, int x, int y, int gridWidth, int value) {
-    int partial = x + y * gridWidth;
-    int bit = partial % 32;
-    grid[partial / 32] = SET_BIT(grid[partial / 32], bit, value);
+    int index = (x / 32) + WORD_CEIL(gridWidth, 32) * y;
+    int bit = x % 32;
+    grid[index] = SET_BIT(grid[index], bit, value);
 }
 
 inline __device__ bool IsAlive(int cell) {
@@ -121,15 +122,17 @@ void RunGoL(int *input, int *output, int gridWidth, int gridHeight, bool wrapAro
 
 void InitializeBoard(int *input, int gridWidth, int gridHeight, char *startingFile) {
 	FILE *file = fopen(startingFile, "r");    
-
-
-	for(int i = 0; i < gridWidth; i = i + 1) {
-		for(int j = 0; j < gridHeight; j = j + 1) {
+	assert(file);
+//	std::cout <<"w,h:"<<gridWidth<<" "<<gridHeight<<std::endl;
+  	for(int i = 0; i < gridHeight; i = i + 1) {
+    	for(int j = 0; j < gridWidth; j = j + 1) {
 			char cell = fgetc(file);
-            int index = (gridWidth * i + j) / 32;
-            int bit = (gridWidth * i + j) % 32;
+            int index = (j / 32) + WORD_CEIL(gridWidth, 32) * i;
+            int bit = j % 32;
 			input[index] = SET_BIT(input[index], bit, (cell == '1'));
+			std::cout << GET_BIT(input[index], bit);
 		}
+        std::cout << std::endl;
 	}
 	fclose(file);
 }
@@ -146,18 +149,20 @@ int main (int argc, char *argv[]) {
 	int gridSize  = gridWidth * gridHeight;
 	char *startingFile = argv[4];
 	
-	int *input = (int *)malloc(WORD_CEIL(gridSize, 32) * 4);
-	int *output = (int *)malloc(WORD_CEIL(gridSize, 32) * 4);
+	int *input = (int *)malloc(WORD_CEIL(gridWidth, 32) * gridHeight * 4);
+	int *output = (int *)malloc(WORD_CEIL(gridWidth, 32) * gridHeight * 4);
 	
 	InitializeBoard(input, gridWidth, gridHeight, startingFile);
 	
 	int THREADS_X = min(1024, WORD_CEIL(gridWidth, 32));
-	//int THREADS_Y = max(1024 / THREADS_X, 1);
-	int THREADS_Y = 1;
+	int THREADS_Y = min(1024 / THREADS_X, gridHeight);
+	//int THREADS_Y = 1;
+    //int THREADS_Y = ;
 	int THREADS_Z = 1;
 	
 	int BLOCKS_X = WORD_CEIL(WORD_CEIL(gridWidth, 32), THREADS_X);
 	int BLOCKS_Y = WORD_CEIL(gridHeight, THREADS_Y);
+    //int BLOCKS_Y = 1024 / ;
 	int BLOCKS_Z = 1;
 	
 	dim3 threads(THREADS_X, THREADS_Y, THREADS_Z);
@@ -167,16 +172,16 @@ int main (int argc, char *argv[]) {
 	int *d_output;
     int *temp;
     // TODO: style
-	cudaMalloc(&d_input, WORD_CEIL(gridSize, 32) * 4);
-	cudaMalloc(&d_output, WORD_CEIL(gridSize, 32) * 4);
-	cudaMemcpy(d_input, input, WORD_CEIL(gridSize, 32) * 4, cudaMemcpyHostToDevice);
+	cudaMalloc(&d_input, WORD_CEIL(gridWidth, 32) * gridHeight * 4);
+	cudaMalloc(&d_output, WORD_CEIL(gridWidth, 32) * gridHeight * 4);
+	cudaMemcpy(d_input, input, WORD_CEIL(gridWidth, 32) * gridHeight * 4, cudaMemcpyHostToDevice);
 
     // run GoL for as many iterations as was passed in. note we must repeatedly call
     // the kernel from the host since this is the only way to ensure synchronization
     // across all blocks
     for (int i = 0; i < iterations; i++) {	
 	    RunGoL<<<blocks, threads>>>(d_input, d_output, gridWidth, gridHeight, true);
-        cudaDeviceSynchronize();
+        cudaDeviceSynchronize(); // why can't we move this out of the loop? isn't sync across blocks inherent across kerenl calls?
 
         // swap
         temp = d_input;
@@ -184,15 +189,15 @@ int main (int argc, char *argv[]) {
         d_output = temp;
     }	
 
-	cudaMemcpy(output, d_input, WORD_CEIL(gridSize, 32) * 4, cudaMemcpyDeviceToHost);
+	cudaMemcpy(output, d_input, WORD_CEIL(gridWidth, 32) * gridHeight * 4, cudaMemcpyDeviceToHost);
 
+    std::cout << std::endl;
     // TODO: style	
 	for(int j = 0; j < gridHeight; j = j + 1) {
 	    for(int i = 0; i < gridWidth; i = i + 1) {
-            int index = (j * gridWidth + i) / 32;
-            int word = output[index];
-            int bit = (j * gridWidth + i) % 32;
-			std::cout << GET_BIT(word, bit);
+            int index = (i / 32) + WORD_CEIL(gridWidth, 32) * j;
+            int bit = i % 32;
+			std::cout << GET_BIT(output[index], bit);
 		}
 		std::cout << std::endl;
 	}
