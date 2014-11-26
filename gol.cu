@@ -12,28 +12,18 @@
 #define GET_BIT(num, bit) ((num & (0x1 << bit)) >> bit)
 
 // global memory only
-
-typedef bool GolCell;
-
-// TODO: this function is unused?
-/*
-inline __device__ GolCell GetNeighbourCell (GolCell *input, int mapCellIdx, int mapWidth, int x_off, int y_off) {
-	return input[mapCellIdx + (mapWidth * y_off) + x_off];
-}
-*/
-
 inline __device__ void UpdateNeighbourhood(int &neighbourhood, int &neighbourValue) {
 	neighbourhood += neighbourValue;
 } 
 
-inline __device__ int GetCell(int *grid, int x, int y, int gridWidth) {
+inline __device__ unsigned int GetCell(unsigned int *grid, int x, int y, int gridWidth) {
     int index = (x / 32) + WORD_CEIL(gridWidth, 32) * y;
     int bit = x % 32;
     int word = grid[index];
 	return GET_BIT(word, bit);
 }
 
-inline __device__ void SetCell(int *grid, int x, int y, int gridWidth, int value) {
+inline __device__ void SetCell(unsigned int *grid, int x, int y, int gridWidth, int value) {
     int index = (x / 32) + WORD_CEIL(gridWidth, 32) * y;
     int bit = x % 32;
     grid[index] = SET_BIT(grid[index], bit, value);
@@ -45,7 +35,7 @@ inline __device__ bool IsAlive(int cell) {
 
 // A cell is alive the next generation if it is currently alive and has
 // either 2 or 3 neighbours OR if it is dead and has 3 neighbours.
-inline __device__ void UpdateState(int &thisCell, int &neighbourhood) {
+inline __device__ void UpdateState(unsigned int &thisCell, int &neighbourhood) {
 	if(IsAlive(thisCell)) {
 		thisCell = (neighbourhood == 2 || neighbourhood == 3);
 	} else {
@@ -54,14 +44,12 @@ inline __device__ void UpdateState(int &thisCell, int &neighbourhood) {
 }
 
 __global__ 
-void RunGoL(int *input, int *output, int gridWidth, int gridHeight, bool wrapAround) {
-    //extern __shared__ bool s_data[];
-
+void RunGoL(unsigned int *input, unsigned int *output, int gridWidth, int gridHeight, bool wrapAround) {
 	int tid_x = threadIdx.x;
 	int tid_y = threadIdx.y;
     int x = tid_x + blockIdx.x * blockDim.x;
     int y = tid_y + blockIdx.y * blockDim.y;
-    int thisCell = 0;
+    unsigned int thisCell = 0;
 
    	// The variable we use to track the status of the cells surrounding this one
 	// A basic implementation will be one where for each neighbour that is alive
@@ -120,10 +108,9 @@ void RunGoL(int *input, int *output, int gridWidth, int gridHeight, bool wrapAro
 	}
 } 
 
-void InitializeBoard(int *input, int gridWidth, int gridHeight, char *startingFile) {
+void InitializeBoard(unsigned int *input, int gridWidth, int gridHeight, char *startingFile) {
 	FILE *file = fopen(startingFile, "r");    
 	assert(file);
-//	std::cout <<"w,h:"<<gridWidth<<" "<<gridHeight<<std::endl;
   	for(int i = 0; i < gridHeight; i = i + 1) {
     	for(int j = 0; j < gridWidth; j = j + 1) {
 			char cell = fgetc(file);
@@ -146,32 +133,28 @@ int main (int argc, char *argv[]) {
 	int gridWidth = atoi(argv[1]);
 	int gridHeight = atoi(argv[2]);
 	int iterations = atoi(argv[3]);
-	int gridSize  = gridWidth * gridHeight;
 	char *startingFile = argv[4];
 	
-	int *input = (int *)malloc(WORD_CEIL(gridWidth, 32) * gridHeight * 4);
-	int *output = (int *)malloc(WORD_CEIL(gridWidth, 32) * gridHeight * 4);
+	unsigned int *input = (unsigned int *)malloc(WORD_CEIL(gridWidth, 32) * gridHeight * 4);
+	unsigned int *output = (unsigned int *)malloc(WORD_CEIL(gridWidth, 32) * gridHeight * 4);
 	
 	InitializeBoard(input, gridWidth, gridHeight, startingFile);
 	
 	int THREADS_X = min(1024, WORD_CEIL(gridWidth, 32));
 	int THREADS_Y = min(1024 / THREADS_X, gridHeight);
-	//int THREADS_Y = 1;
-    //int THREADS_Y = ;
 	int THREADS_Z = 1;
 	
 	int BLOCKS_X = WORD_CEIL(WORD_CEIL(gridWidth, 32), THREADS_X);
 	int BLOCKS_Y = WORD_CEIL(gridHeight, THREADS_Y);
-    //int BLOCKS_Y = 1024 / ;
 	int BLOCKS_Z = 1;
 	
 	dim3 threads(THREADS_X, THREADS_Y, THREADS_Z);
 	dim3 blocks(BLOCKS_X, BLOCKS_Y, BLOCKS_Z);
 	
-	int *d_input;
-	int *d_output;
-    int *temp;
-    // TODO: style
+	unsigned int *d_input;
+	unsigned int *d_output;
+    unsigned int *temp;
+
 	cudaMalloc(&d_input, WORD_CEIL(gridWidth, 32) * gridHeight * 4);
 	cudaMalloc(&d_output, WORD_CEIL(gridWidth, 32) * gridHeight * 4);
 	cudaMemcpy(d_input, input, WORD_CEIL(gridWidth, 32) * gridHeight * 4, cudaMemcpyHostToDevice);
