@@ -45,7 +45,7 @@ foreach my $testFile (@testFiles) {
 	my @result = `$testProgCmd`;
 	my @refResult = `$refProgCmd`;
 	my $MSG = "";
-	my $bResultsMatch = ResultsMatch(\@result, \@refResult, $cols);
+	my $bResultsMatch = ResultsMatch(\@result, \@refResult, $rows, $cols);
 	print("result: $bResultsMatch\n");
 	if(1 == $bResultsMatch) {
 		$MSG = "SUCCESS";
@@ -58,15 +58,16 @@ foreach my $testFile (@testFiles) {
 sub ResultsMatch {
 	my $testResultsRef = $_[0];
 	my $refResultsRef  = $_[1];
-	my $width = $_[2];
+	my $rows  = $_[2];
+	my $width = $_[3];
 	my @testResults = @$testResultsRef;
 	my @refResults = @$refResultsRef;
 
 	my $size = @testResults;
 #	if($size != @refResults) { die("Output gridsize mismatch\n"); }
-	for(my $i = 0; $i < $size; $i = $i + 1) {
+	for(my $i = 0; $i < $rows; $i = $i + 1) {
 		if(substr($testResults[$i], 0, $width) ne substr($refResults[$i], 0, $width)) {
-			print "FAILURE\n";
+			print "FAILURE, line $i\n";
 			print "TEST RESULTS A:\n @testResults\n\n";
 			print "TEST RESULTS B:\n @refResults\n\n";
 			return 0;
