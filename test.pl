@@ -87,7 +87,7 @@ sub WriteToFlatFile{
 	close($testFile);
 	
 	my $rows = @gridLines;
-	my $cols = length($gridLines[0]) - 2;
+	my $cols = length($gridLines[0]) - 1;
 	
 	print("Reading in level:\n");
 	foreach my $row(@gridLines) {
