@@ -219,9 +219,10 @@ void RunGoL(unsigned int *input, unsigned int *output, int gridWidth, int gridHe
 
     unsigned int seed = 0;
     unsigned int result = 0;
+    unsigned int end = (wordsPerRow - 1 == x) ? (gridWidth % W_SIZE) - 1 : 31;
 
     // iterate through 30 bits of the 32 bit word and lookup the result
-    for (int i = W_SIZE - 2; i > 0; i--) {
+    for (int i = end - 1; i > 0; i--) {
         // represent the 3X3 grid centered around mid[i] as a 9 bit number
         seed = (GET_BITS(nWord, i) << 6) + (GET_BITS(cWord, i) << 3) + GET_BITS(sWord, i);
 
@@ -229,17 +230,18 @@ void RunGoL(unsigned int *input, unsigned int *output, int gridWidth, int gridHe
         result += ComputeResult(seed) << i;
     }
 
+
     // compute right end
-    seed = (GET_BIT(nWord, 1) << 8) + (GET_BIT(nWord, 0) << 7) + (GET_BIT(neWord, 31) << 6)
-         + (GET_BIT(cWord, 1) << 8) + (GET_BIT(cWord, 0) << 7) + (GET_BIT(eWord, 31) << 6)
-         + (GET_BIT(sWord, 1) << 8) + (GET_BIT(sWord, 0) << 7) + (GET_BIT(seWord, 31) << 6);
-    result += ComputeResult(seed);
+    seed = (GET_BIT(nWord, 1) << 8) + (GET_BIT(nWord, 0) << 7) + (GET_BIT(neWord, end) << 6)
+         + (GET_BIT(cWord, 1) << 5) + (GET_BIT(cWord, 0) << 4) + (GET_BIT(eWord, end) << 3)
+         + (GET_BIT(sWord, 1) << 2) + (GET_BIT(sWord, 0) << 1) + (GET_BIT(seWord, end) << 0);
+    result += ComputeResult(seed) << 0;
 
     // compute left end
-    seed = (GET_BIT(nWord, 31) << 8) + (GET_BIT(nWord, 30) << 7) + (GET_BIT(nwWord, 0) << 6)
-         + (GET_BIT(cWord, 31) << 8) + (GET_BIT(cWord, 30) << 7) + (GET_BIT(wWord, 0) << 6)
-         + (GET_BIT(sWord, 31) << 8) + (GET_BIT(sWord, 30) << 7) + (GET_BIT(swWord, 0) << 6);
-    result += ComputeResult(seed) << 31;
+    seed = (GET_BIT(nwWord, 0) << 8) + (GET_BIT(nWord, end) << 7) + (GET_BIT(nWord, end - 1) << 6) 
+         + (GET_BIT( wWord, 0) << 5) + (GET_BIT(cWord, end) << 4) + (GET_BIT(cWord, end - 1) << 3) 
+         + (GET_BIT(swWord, 0) << 2) + (GET_BIT(sWord, end) << 1) + (GET_BIT(sWord, end - 1) << 0) ;
+    result += ComputeResult(seed) << end;
 
     // write out the final answer
     output[x + y * wordsPerRow] = result;
@@ -258,13 +260,13 @@ void InitializeBoard(unsigned int *input, int gridWidth, int gridHeight, char *s
 
             // Sorry about this - I would like a nicer way to deal with newline
             // oddities across windows/Linux plats but we can hack it for now
-            while(cell != '1' && cell != 'X' && cell != '0'&& cell != ' ') {
+            while(cell != '1' && cell != 'X' && cell != '0'&& cell != ' ' && cell != '_') {
                 cell = fgetc(file);
             }
 
             if((cell == '1' || cell == 'X')) {
                 SET_BIT(input[index], bit, 1);
-            } else if((cell == '0' || cell == ' ')) {
+            } else if((cell == '0' || cell == ' ' || cell == '_')) {
                 SET_BIT(input[index], bit, 0);
             }
         }
@@ -314,6 +316,7 @@ int main (int argc, char *argv[]) {
         dim3 blocks(1, 1, 1);
 
         RunGolSharedMem<<<blocks, threads>>>(d_input, d_output, gridWidth, gridHeight, iterations);
+
     } else {
         int THREADS_X = min(1024, WORD_CEIL(gridWidth, 32));
         int THREADS_Y = min(1024 / THREADS_X, gridHeight);
