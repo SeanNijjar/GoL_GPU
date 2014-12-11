@@ -247,20 +247,28 @@ void RunGoL(unsigned int *input, unsigned int *output, int gridWidth, int gridHe
     output[x + y * wordsPerRow] = result;
 }
 
-void InitializeBoard(unsigned int *input, int gridWidth, int gridHeight, char *startingFile) {
-    FILE *file = fopen(startingFile, "r");    
-    assert(file);
+void InitializeBoard(unsigned int *input, int gridWidth, int gridHeight, char *startingFile, bool bGenGridFromScratch) {
+    FILE *file = NULL;
+	if(!bGenGridFromScratch) {
+		fopen(startingFile, "r");    
+    	assert(file);
+	}
 
     for(int i = 0; i < gridHeight; i = i + 1) {
         for(int j = 0; j < gridWidth; j = j + 1) {
-            char cell = fgetc(file);
+            char cell = '\n';
+			if(!bGenGridFromScratch) {
+				fgetc(file);
+			} else {
+				cell = (rand() % 3  == 0) ? '1' : '0'; 
+			}
             
             int index = (j / 32) + WORD_CEIL(gridWidth, 32) * i;
             int bit = j % 32;
 
             // Sorry about this - I would like a nicer way to deal with newline
             // oddities across windows/Linux plats but we can hack it for now
-            while(cell != '1' && cell != 'X' && cell != '0'&& cell != ' ' && cell != '_') {
+            while(cell != '1' && cell != 'X' && cell != '0'&& cell != ' ' && cell != '_' && !bGenGridFromScratch) {
                 cell = fgetc(file);
             }
 
@@ -271,20 +279,18 @@ void InitializeBoard(unsigned int *input, int gridWidth, int gridHeight, char *s
             }
         }
     }
-    fclose(file);
+	if(!bGenGridFromScratch) {
+    	fclose(file);
+	}
 }
 
 int main (int argc, char *argv[]) {
     // sanity checking of parameters
-    if(argc != 5) {
+    if(argc != 5 && argc != 4) {
         printf("Usage: gol <gridWidth> <gridHeight> <iterations> <starting file>\n");
         return 0;
     }
-	// Cuda Events
-	cudaEvent_t start, end;
-	cudaEventCreate(&start);
-	cudaEventCreate(&end);
-    
+   
     // parse in parameters to get dimensions of the board
     int gridWidth = atoi(argv[1]);
     int gridHeight = atoi(argv[2]);
@@ -303,8 +309,12 @@ int main (int argc, char *argv[]) {
     cudaMalloc(&d_output, gridSize);
 
     // load in the starting condition of the GoL board   
-    InitializeBoard(input, gridWidth, gridHeight, startingFile);
-
+    InitializeBoard(input, gridWidth, gridHeight, startingFile, argc == 4);
+	// Cuda Events
+	cudaEvent_t start, end;
+	cudaEventCreate(&start);
+	cudaEventCreate(&end);
+ 
 	cudaEventRecord(start, 0);
     // copy the board to video memory in preparation for GPU
     // to do processing
