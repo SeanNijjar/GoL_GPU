@@ -10,25 +10,25 @@
 
 typedef bool GolCell;
 
-inline GolCell GetNeighbourCell (GolCell *input, int mapCellIdx, int mapWidth, int x_off, int y_off) {
+inline __device__ GolCell GetNeighbourCell (GolCell *input, int mapCellIdx, int mapWidth, int x_off, int y_off) {
 	return input[mapCellIdx + (mapWidth * y_off) + x_off];
 }
 
-inline  void UpdateNeighbourhood(int &neighbourhood, GolCell &neighbourValue) {
+inline __device__ void UpdateNeighbourhood(int &neighbourhood, GolCell &neighbourValue) {
 	neighbourhood += neighbourValue;
 } 
 
-inline  GolCell GetCell(GolCell *grid, int x, int y, int gridWidth) {
+inline __device__ GolCell GetCell(GolCell *grid, int x, int y, int gridWidth) {
 	return grid[x + (y * gridWidth)];
 }
 
-inline  bool IsAlive(GolCell &cell) {
-	return (true == cell);
+inline __device__ bool IsAlive(GolCell &cell) {
+	return (1 == cell);
 }
 
 // A cell is alive the next generation if it is currently alive and has
 // either 2 or 3 neighbours OR if it is dead and has 3 neighbours.
-inline void UpdateState(GolCell &thisCell, int &neighbourhood) {
+inline __device__ void UpdateState(GolCell &thisCell, int &neighbourhood) {
 	if(IsAlive(thisCell)) {
 		thisCell = (neighbourhood == 2 || neighbourhood == 3);
 	} else {
@@ -36,11 +36,17 @@ inline void UpdateState(GolCell &thisCell, int &neighbourhood) {
 	} 
 }
 
-
+__global__ 
 void RunGoL(GolCell *input, GolCell *output, int gridWidth, int gridHeight, int iterations, bool wrapAround) {
+	int tid_x = threadIdx.x;
+	int tid_y = threadIdx.y;
+    int x = tid_x + blockIdx.x * blockDim.x;
+    int y = tid_y + blockIdx.y * blockDim.y;
+	int gridSizeX = blockDim.x * gridDim.x;
+	int gridSizeY = blockDim.y * gridDim.y;
 	for(int iter = 0; iter < iterations; iter = iter + 1) {
-		for(int glbl_x = 0; glbl_x < gridWidth; glbl_x = glbl_x + 1) {
-			for(int glbl_y = 0; glbl_y < gridHeight; glbl_y = glbl_y + 1) {
+		for(int glbl_x = x; glbl_x < gridWidth; glbl_x = glbl_x + gridSizeX) {
+			for(int glbl_y = y; glbl_y < gridHeight; glbl_y = glbl_y + gridSizeY) {
 				//Assume row-major here
 				int mapCell = (gridWidth * glbl_y) + glbl_x;
 				GolCell thisCell = input[mapCell];
@@ -102,9 +108,11 @@ void RunGoL(GolCell *input, GolCell *output, int gridWidth, int gridHeight, int 
 
 			}
 		}
+		
 		GolCell *bufferSwap = input;
 		input = output;
 		output = bufferSwap;
+		__syncthreads();
 	}
 } 
 
@@ -145,7 +153,6 @@ void InitializeBoard(GolCell *input, int gridWidth, int gridHeight, char *starti
 	}
 }
 
-
 int main (int argc, char *argv[]) {
 	if(argc != 5 && argc != 4) {
 		return 0;
@@ -156,35 +163,64 @@ int main (int argc, char *argv[]) {
 	int iterations = atoi(argv[3]);
 	int gridSize  = gridWidth * gridHeight;
 	char *startingFile = argv[4];
-
-
+	
 	GolCell *input = (GolCell *)malloc(gridSize * sizeof(GolCell));
 	GolCell *output = (GolCell *)malloc(gridSize * sizeof(GolCell));
 	
 	InitializeBoard(input, gridWidth, gridHeight, startingFile, argc == 4);
-
+	
+	int THREADS_X = 32;
+	int THREADS_Y = 32;
+	int THREADS_Z = 1;
+	
+	int BLOCKS_MAX = 256;
+	int BLOCKS_X = min(BLOCKS_MAX, gridWidth / THREADS_X) + 1;
+	int BLOCKS_Y = min(BLOCKS_MAX, gridHeight / THREADS_Y) + 1;
+	int BLOCKS_Z = 1;
+	
+	dim3 threads(THREADS_X, THREADS_Y, THREADS_Z);
+	dim3 blocks(BLOCKS_X, BLOCKS_Y, BLOCKS_Z);
+	
+	GolCell *d_input;
+	GolCell *d_output;
+	// Cuda Events
 	cudaEvent_t start, end;
 	cudaEventCreate(&start);
 	cudaEventCreate(&end);
-	
+ 
 	cudaEventRecord(start, 0);
-	RunGoL(input, output, gridWidth, gridHeight, iterations, true);
-
-	cudaEventRecord(end, 0);
+	
+//	std::cout << "threads: {"<<threads.x<<","<<threads.y<<","<<threads.z<<"} blocks:{"<<blocks.x<<","<<blocks.y<<","<<blocks.z<<"}"<<std::endl;
+	cudaMalloc(&d_input, gridSize * sizeof(GolCell));
+	cudaMalloc(&d_output, gridSize * sizeof(GolCell));
+	cudaMemcpy(d_input, input, gridSize * sizeof(GolCell), cudaMemcpyHostToDevice);
+	for(int i = 0; i < iterations; i = i + 1) {
+		// Make sure this is blocking for now
+		RunGoL<<<blocks, threads>>>(d_input, d_output, gridWidth, gridHeight, 1, true);
+		GolCell *temp = d_input;
+		d_input = d_output;
+		d_output = temp;
+	}
+	
+	// I think the number of iterations will determine whether we should copy from d_output or d_input
+	cudaMemcpy(output, (iterations & 0x1) ? d_output : d_input, gridSize * sizeof(GolCell), cudaMemcpyDeviceToHost);
+		cudaEventRecord(end, 0);
 	cudaEventSynchronize(end);
 	float time_ms;
 	cudaEventElapsedTime(&time_ms, start, end);
+	
 	std::cout <<"time: "<<time_ms<<std::endl;
 	
-	if(0 == (iterations & 0x1)) { // even number of iterations -> true output buffer is stored at input
-		output = input;
-	}
-//	std::cout <<"Ending BOARD"<<std::endl;
 //	for(int j = 0; j < gridHeight; j = j + 1) {
 //		for(int i = 0; i < gridWidth; i = i + 1) {
 //			std::cout << (output[j * gridWidth + i] ? '#' : ' ');
 //		}
-//		std::cout << "|" << std::endl;
+//		std::cout << std::endl;
 //	}
-}
 
+    cudaFree(d_input);
+    cudaFree(d_output);
+    free(input);
+    free(output);
+
+}
